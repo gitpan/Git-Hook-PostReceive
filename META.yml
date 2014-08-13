@@ -18,7 +18,7 @@ resources:
   bugtracker: https://github.com/c9s/Git-Hook-PostReceive/issues
   homepage: https://github.com/c9s/Git-Hook-PostReceive
   repository: https://github.com/c9s/Git-Hook-PostReceive.git
-version: '0.2'
+version: '0.3'
 x_contributors:
   - 'Jakob Voss <voss@gbv.de>'
   - 'Yo-An Lin (林佑安) <cornelius@cpan.org>'

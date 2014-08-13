@@ -1,5 +1,5 @@
 package Git::Hook::PostReceive;
-$Git::Hook::PostReceive::VERSION = '0.2';
+$Git::Hook::PostReceive::VERSION = '0.3';
 use warnings;
 use strict;
 use v5.14;
@@ -31,8 +31,41 @@ sub read_stdin {
             return $payload;
         }
     }
-
     return wantarray ? @branches : ();
+}
+
+sub _git_cmd {
+    my $self = shift;
+    my @args = qw(git);
+    push @args, "--git-dir=" . $self->{git_dir}     if $self->{git_dir};
+    push @args, "--work-tree=" . $self->{work_tree} if $self->{work_tree};
+    return @args;
+}
+
+sub detect_action {
+    my ( $self, $before, $after ) = @_;
+    chomp $before;
+    chomp $after;
+    if ( $before ne '0000000000000000000000000000000000000000' ) {
+        $before = qx(@{[ $self->_git_cmd() ]} rev-parse $before);
+    }
+    else {
+        return { created => $before };
+    }
+    if ( $after ne '0000000000000000000000000000000000000000' ) {
+        $after = qx(@{[ $self->_git_cmd() ]} rev-parse $after);
+    }
+    else {
+        return { deleted => $after };
+    }
+    return { pushed => [ $before, $after ] };
+}
+
+sub get_repo {
+    my $self = shift;
+    return $self->{git_dir}   if $self->{git_dir};
+    return $self->{work_tree} if $self->{work_tree};
+    return getcwd();
 }
 
 sub run {
@@ -40,12 +73,9 @@ sub run {
 
     return unless $before and $after and $ref;
 
-    #    $before //=
-
     my ( $created, $deleted ) = ( 0, 0 );
-
     if ( $before ne '0000000000000000000000000000000000000000' ) {
-        $before = qx(git rev-parse $before);
+        $before = qx(@{[ $self->_git_cmd() ]} rev-parse $before);
         chomp $before;
     }
     else {
@@ -53,18 +83,17 @@ sub run {
     }
 
     if ( $after ne '0000000000000000000000000000000000000000' ) {
-        $after = qx(git rev-parse $after);
+        $after = qx(@{[ $self->_git_cmd() ]} rev-parse $after);
         chomp $after;
     }
     else {
         $deleted = 1;
     }
 
-    my $repo = getcwd;
     return {
         before     => $before,
         after      => $after,
-        repository => $repo,
+        repository => $self->get_repo(),
         ref        => $ref,
         created    => $created,
         deleted    => $deleted,
@@ -82,10 +111,10 @@ sub get_commits {
     if (   $before ne '0000000000000000000000000000000000000000'
         && $after ne '0000000000000000000000000000000000000000' )
     {
-        $log_string = qx(git rev-list $before...$after);
+        $log_string = qx(@{[ $self->_git_cmd() ]} rev-list $before...$after);
     }
     elsif ( $after ne '0000000000000000000000000000000000000000' ) {
-        $log_string = qx(git rev-list $after);
+        $log_string = qx(@{[ $self->_git_cmd() ]} rev-list $after);
     }
 
     return () unless $log_string;
@@ -96,7 +125,8 @@ sub get_commits {
 sub commit_info {
     my ( $self, $hash ) = @_;
 
-    my $commit = qx{git show --format=fuller --date=iso --name-status $hash};
+    my $commit
+        = qx{@{[ $self->_git_cmd() ]} show --format=fuller --date=iso --name-status $hash};
     $commit = decode( 'utf8', $commit ) if $self->{utf8};
 
     my @lines = split /\n/, $commit;
@@ -156,7 +186,7 @@ Git::Hook::PostReceive - Parses git commit information in post-receive hook scri
 
 =head1 VERSION
 
-version 0.2
+version 0.3
 
 =head1 SYNOPSIS
 
@@ -262,6 +292,17 @@ STDIN by default.
 Return a payload for the commits between C<$before> and C<$after> at branch
 C<$ref>. Returns undef on failure.
 
+=head2 detect_action($before, $after)
+
+This function detects the action of the receiving commits and return the action
+name with the related commit hash in a hashref.
+
+C<0000000000> at the head means "branch created".
+
+C<0000000000> at the end means "branch deleted".
+
+Otherwise it means "commits pushed".
+
 =head2 SEE ALSO
 
 L<Git::Repository>, L<Plack::App::GitHub::WebHook>
@@ -286,7 +327,7 @@ Yo-An Lin
 
 =head1 COPYRIGHT AND LICENSE
 
-This software is copyright (c) 2013 by Yo-An Lin.
+This software is copyright (c) 2014 by Yo-An Lin.
 
 This is free software; you can redistribute it and/or modify it under
 the same terms as the Perl 5 programming language system itself.
